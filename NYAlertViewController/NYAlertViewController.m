@@ -303,6 +303,8 @@ static CGFloat const kDefaultDismissalAnimationDuration = 0.6f;
 @property UIPanGestureRecognizer *panGestureRecognizer;
 @property (nonatomic, strong) id<UIViewControllerTransitioningDelegate> transitioningDelegate;
 
+@property (nonatomic) NSLayoutConstraint *bottomKeyboardConstraint;
+
 - (void)panGestureRecognized:(UIPanGestureRecognizer *)gestureRecognizer;
 
 @end
@@ -343,6 +345,14 @@ static CGFloat const kDefaultDismissalAnimationDuration = 0.6f;
     // Necessary to avoid retain cycle - http://stackoverflow.com/a/21218703/1227862
     self.transitioningDelegate = nil;
     [super viewDidDisappear:animated];
+    
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:UIKeyboardWillShowNotification
+                                                  object:nil];
+    
+    [[NSNotificationCenter defaultCenter] removeObserver:self
+                                                    name:UIKeyboardWillHideNotification
+                                                  object:nil];
 }
 
 - (void)commonInit {
@@ -464,6 +474,17 @@ static CGFloat const kDefaultDismissalAnimationDuration = 0.6f;
     
     [self createActionButtons];
     self.view.textFields = self.textFields;
+    
+    // register for keyboard notifications
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(keyboardWillShow:)
+                                                 name:UIKeyboardWillShowNotification
+                                               object:nil];
+    
+    [[NSNotificationCenter defaultCenter] addObserver:self
+                                             selector:@selector(keyboardWillHide:)
+                                                 name:UIKeyboardWillHideNotification
+                                               object:nil];
 }
 
 - (void)setAlertViewBackgroundColor:(UIColor *)alertViewBackgroundColor {
@@ -524,6 +545,58 @@ static CGFloat const kDefaultDismissalAnimationDuration = 0.6f;
 - (void)actionButtonPressed:(UIButton *)button {
     NYAlertAction *action = self.actions[button.tag];
     action.handler(action);
+}
+
+- (void)keyboardWillHide:(NSNotification *)notification {
+    if (self.bottomKeyboardConstraint) {
+        [UIView animateWithDuration:0.32 animations:^{
+            UIView *alert = (((NYAlertView *)self.view).alertBackgroundView);
+            [alert.superview removeConstraint:self.bottomKeyboardConstraint];
+            
+            NSLayoutConstraint *centerConstraint = [NSLayoutConstraint constraintWithItem:alert
+                                                                                attribute:NSLayoutAttributeCenterY
+                                                                                relatedBy:NSLayoutRelationLessThanOrEqual
+                                                                                   toItem:alert.superview
+                                                                                attribute:NSLayoutAttributeCenterY
+                                                                               multiplier:1
+                                                                                 constant:0];
+            [alert.superview addConstraint:centerConstraint];
+        }];
+    }
+}
+
+- (void)keyboardWillShow:(NSNotification *)notification {
+    NSDictionary* userInfo = [notification userInfo];
+    
+    // get the size of the keyboard
+    CGSize keyboardSize = [[userInfo objectForKey:UIKeyboardFrameBeginUserInfoKey] CGRectValue].size;
+    
+    __weak NYAlertViewController *weakSelf = self;
+    UIView *alert = (((NYAlertView *)self.view).alertBackgroundView);
+    if (self.bottomKeyboardConstraint) {
+        [alert.superview removeConstraint:self.bottomKeyboardConstraint];
+    }
+    
+    [UIView animateWithDuration:0.32 animations:^{
+        
+        for (NSLayoutConstraint *constraint in alert.superview.constraints) {
+            if (constraint.firstAttribute == NSLayoutAttributeCenterY) {
+                [alert.superview removeConstraint:constraint];
+                break;
+            }
+        }
+        
+        weakSelf.bottomKeyboardConstraint = [NSLayoutConstraint constraintWithItem:alert
+                                                           attribute:NSLayoutAttributeBottom
+                                                           relatedBy:NSLayoutRelationLessThanOrEqual
+                                                              toItem:alert.superview
+                                                           attribute:NSLayoutAttributeBottom
+                                                          multiplier:1
+                                                            constant:-keyboardSize.height-10];
+        weakSelf.bottomKeyboardConstraint.priority = 1000;
+        
+        [alert.superview addConstraint:weakSelf.bottomKeyboardConstraint];
+    }];
 }
 
 #pragma mark - Getters/Setters
